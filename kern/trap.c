@@ -97,14 +97,64 @@ trapname(int trapno) {
     return "(unknown trap)";
 }
 
+void clock_thdlr(void);
+void timer_thdlr(void);
+
+void divide_thdlr(void);
+void debug_thdlr(void);
+void nmi_thdlr(void);
+void brkpt_thdlr(void);
+void oflow_thdlr(void);
+void bound_thdlr(void);
+void illop_thdlr(void);
+void device_thdlr(void);
+void tss_thdlr(void);
+void segnp_thdlr(void);
+void stack_thdlr(void);
+void gpflt_thdlr(void);
+void pgflt_thdlr(void);
+void fperr_thdlr(void);
+void syscall_thdlr(void);
+void dblflt_thdlr(void);
+void mchk_thdlr(void);
+void align_thdlr(void);
+void simderr_thdlr(void);
+
+void kbd_thdlr(void);
+void serial_thdlr(void);
+
 void
 trap_init(void) {
     // LAB 4: Your code here
+    //idt[IRQ_OFFSET + IRQ_CLOCK] = GATE(0, GD_KT, clock_thdlr, 0);
     // LAB 5: Your code here
+    //idt[IRQ_OFFSET + IRQ_TIMER] = GATE(0, GD_KT, timer_thdlr, 0);
 
 
     /* Insert trap handlers into IDT */
     // LAB 8: Your code here
+    idt[T_DIVIDE] = GATE(0, GD_KT, (uint64_t)divide_thdlr, 0);
+    idt[T_DEBUG]  = GATE(0, GD_KT, (uint64_t)debug_thdlr, 0);
+    idt[T_NMI]    = GATE(0, GD_KT, (uint64_t)nmi_thdlr, 0);
+    idt[T_BRKPT]  = GATE(0, GD_KT, (uint64_t)brkpt_thdlr, 3);
+    idt[T_OFLOW]  = GATE(0, GD_KT, (uint64_t)oflow_thdlr, 0);
+    idt[T_BOUND]  = GATE(0, GD_KT, (uint64_t)bound_thdlr, 0);
+    idt[T_ILLOP]  = GATE(0, GD_KT, (uint64_t)illop_thdlr, 0);
+    idt[T_DEVICE] = GATE(0, GD_KT, (uint64_t)device_thdlr, 0);
+    idt[T_DBLFLT] = GATE(0, GD_KT, (uint64_t)dblflt_thdlr, 0);
+    idt[T_TSS]    = GATE(0, GD_KT, (uint64_t)tss_thdlr, 0);
+    idt[T_SEGNP]  = GATE(0, GD_KT, (uint64_t)segnp_thdlr, 0);
+    idt[T_STACK]  = GATE(0, GD_KT, (uint64_t)stack_thdlr, 0);
+    idt[T_GPFLT]  = GATE(0, GD_KT, (uint64_t)gpflt_thdlr, 0);
+    idt[T_PGFLT]  = GATE(0, GD_KT, (uint64_t)pgflt_thdlr, 0);
+    idt[T_FPERR]  = GATE(0, GD_KT, (uint64_t)fperr_thdlr, 0);
+    idt[T_ALIGN]  = GATE(0, GD_KT, (uint64_t)align_thdlr, 0);
+    idt[T_MCHK]  = GATE(0, GD_KT, (uint64_t)mchk_thdlr, 0);
+    idt[T_SIMDERR]  = GATE(0, GD_KT, (uint64_t)simderr_thdlr, 0);
+    idt[T_SYSCALL]  = GATE(0, GD_KT, (uint64_t)syscall_thdlr, 3);
+
+    idt[IRQ_OFFSET + IRQ_CLOCK] = GATE(0, GD_KT, (uint64_t)clock_thdlr, 0);
+    idt[IRQ_OFFSET + IRQ_TIMER] = GATE(0, GD_KT, (uint64_t)timer_thdlr, 0);
 
     /* Setup #PF handler dedicated stack
      * It should be switched on #PF because
@@ -114,6 +164,8 @@ trap_init(void) {
     idt[T_PGFLT].gd_ist = 1;
 
     // LAB 11: Your code here
+    idt[IRQ_OFFSET + IRQ_KBD] = GATE(0, GD_KT, (uint64_t)kbd_thdlr, 3);
+    idt[IRQ_OFFSET + IRQ_SERIAL] = GATE(0, GD_KT, (uint64_t)serial_thdlr, 3);
 
     /* Per-CPU setup */
     trap_init_percpu();
@@ -233,9 +285,11 @@ trap_dispatch(struct Trapframe *tf) {
     case T_PGFLT:
         /* Handle processor exceptions. */
         // LAB 9: Your code here.
+        page_fault_handler(tf);
         return;
     case T_BRKPT:
         // LAB 8: Your code here
+        monitor(tf);
         return;
     case IRQ_OFFSET + IRQ_SPURIOUS:
         /* Handle spurious interrupts
@@ -249,10 +303,19 @@ trap_dispatch(struct Trapframe *tf) {
     case IRQ_OFFSET + IRQ_TIMER:
     case IRQ_OFFSET + IRQ_CLOCK:
         // LAB 5: Your code here
-        // LAB 4: Your code here
+        timer_for_schedule->handle_interrupts();
+        sched_yield();
         return;
         /* Handle keyboard and serial interrupts. */
         // LAB 11: Your code here
+    case IRQ_OFFSET + IRQ_KBD:
+        kbd_intr();
+        sched_yield();
+        return;
+    case IRQ_OFFSET + IRQ_SERIAL:
+        serial_intr();
+        sched_yield();
+        return;
     default:
         print_trapframe(tf);
         if (!(tf->tf_cs & 3))
@@ -303,7 +366,6 @@ trap(struct Trapframe *tf) {
             assert(!res);
         }
 #endif
-
         /* If #PF was caused by write it can be lazy copying/allocation (fast path)
          * It is required to be handled here because of in-kernel page faults
          * which can happen with curenv == NULL */
@@ -399,23 +461,63 @@ page_fault_handler(struct Trapframe *tf) {
     static_assert(UTRAP_RIP == offsetof(struct UTrapframe, utf_rip), "UTRAP_RIP should be equal to RIP offset");
     static_assert(UTRAP_RSP == offsetof(struct UTrapframe, utf_rsp), "UTRAP_RSP should be equal to RSP offset");
 
+    uintptr_t va = cr2;
+    if (!curenv->env_pgfault_upcall) {
+        if (trace_pagefaults) {
+            cprintf("<%p> user fault ip=%08lX va=%08lX err=%c%c%c%c%c\n", current_space, tf->tf_rip, va,
+                    tf->tf_err & FEC_P ? 'P' : '-',
+                    tf->tf_err & FEC_U ? 'U' : '-',
+                    tf->tf_err & FEC_W ? 'W' : '-',
+                    tf->tf_err & FEC_R ? 'R' : '-',
+                    tf->tf_err & FEC_I ? 'I' : '-');
+        }
+        in_page_fault = 0;
+        user_mem_assert(curenv, (void *)tf->tf_rsp, sizeof(struct UTrapframe), PROT_W | PROT_USER_);
+        env_destroy(curenv);
+    }
 
     /* Force allocation of exception stack page to prevent memcpy from
      * causing pagefault during another pagefault */
     // LAB 9: Your code here:
+    force_alloc_page(&curenv->address_space, USER_EXCEPTION_STACK_TOP - PAGE_SIZE, PAGE_SIZE);
 
     /* Assert existance of exception stack using user mem assert */
     // LAB 9: Your code here:
+    uintptr_t ursp;
+    if (tf->tf_rsp < USER_EXCEPTION_STACK_TOP && tf->tf_rsp > USER_EXCEPTION_STACK_TOP - PAGE_SIZE)
+        ursp = tf->tf_rsp - sizeof(uintptr_t);
+    else
+        ursp = USER_EXCEPTION_STACK_TOP;
+
+    ursp -= sizeof(struct UTrapframe);
+    user_mem_assert(curenv, (void *)ursp, sizeof(struct UTrapframe), PROT_W);
 
     /* Build local copy of UTrapframe */
     // LAB 9: Your code here:
+    struct UTrapframe utf;
+    utf.utf_fault_va = va;
+    utf.utf_err      = tf->tf_err;
+    utf.utf_regs     = tf->tf_regs;
+    utf.utf_rip      = tf->tf_rip;
+    utf.utf_rflags   = tf->tf_rflags;
+    utf.utf_rsp      = tf->tf_rsp;
+    tf->tf_rsp        = ursp;
+    tf->tf_rip        = (uintptr_t)curenv->env_pgfault_upcall;
 
     /* And then copy it userspace (nosan_memcpy) */
     // LAB 9: Your code here:
-
+    struct AddressSpace *old = switch_address_space(&curenv->address_space);
+    set_wp(0);
+    nosan_memcpy((void *)(ursp), (void *)&utf, sizeof(struct UTrapframe));
+    set_wp(1);
+    switch_address_space(old);
     /* Reset in_page_fault flag */
     // LAB 9: Your code here:
 
+    in_page_fault = 0;
+
     /* Rerun current environment */
     // LAB 9: Your code here:
+
+    env_run(curenv);
 }
