@@ -142,3 +142,14 @@ sys_ipc_recv(void *dstva, size_t size) {
 #endif
     return res;
 }
+
+int
+sys_gettime(void) {
+    return syscall(SYS_gettime, 0, 0, 0, 0, 0, 0, 0);
+}
+
+// Network
+int
+sys_udp_send(void* data, uint16_t length) {
+    return syscall(SYS_udp_send, 0, (uintptr_t)data, length, 0, 0, 0, 0);
+}

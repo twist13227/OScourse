@@ -114,6 +114,36 @@ InitGraphics (
   // Hint: Use GetMode/SetMode functions.
   //
 
+  UINT32                               MinHorizontalResolution;
+  UINT32                               MinVerticalResolution;
+  UINT32                               MaxModeNum;
+  UINT32                               CurrModeNum;
+  UINT32                               TargetModeNum;
+  UINTN                                SizeOfInfo;
+  EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *Info;
+  MinHorizontalResolution = GraphicsOutput->Mode->Info->HorizontalResolution;
+  MinVerticalResolution = GraphicsOutput->Mode->Info->VerticalResolution;
+  MaxModeNum = GraphicsOutput->Mode->MaxMode;
+
+  for (CurrModeNum = 0; CurrModeNum < MaxModeNum; CurrModeNum++) {
+    GraphicsOutput->QueryMode (
+      GraphicsOutput,
+      CurrModeNum,
+      &SizeOfInfo,
+      &Info
+      );
+    if (Info->HorizontalResolution <= MinHorizontalResolution &&
+        Info->VerticalResolution   <= MinVerticalResolution) {
+      MinHorizontalResolution = Info->HorizontalResolution;
+      MinVerticalResolution   = Info->VerticalResolution;
+      TargetModeNum = CurrModeNum;
+    }
+   }
+
+  GraphicsOutput->SetMode (
+    GraphicsOutput,
+    TargetModeNum
+  );
 
   //
   // Fill screen with black.
@@ -736,7 +766,7 @@ LoadKernel (
     if (MaxAddress > MinAddress) {
       Status = gBS->AllocatePages (
         AllocateAddress,
-        EfiRuntimeServicesData,
+        EfiLoaderCode,
         EFI_SIZE_TO_PAGES (KernelSize),
         &MinAddress
         );
@@ -975,7 +1005,7 @@ UefiMain (
   UINTN              EntryPoint;
   VOID               *GateData;
 
-#if 1 ///< Uncomment to await debugging
+#if 0 ///< Uncomment to await debugging
   volatile BOOLEAN   Connected;
   DEBUG ((DEBUG_INFO, "JOS: Awaiting debugger connection\n"));
 

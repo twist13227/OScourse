@@ -284,7 +284,7 @@ map_segment(envid_t child, uintptr_t va, size_t memsz,
     /* read filesz to UTEMP */
     /* Map read section conents to child */
     /* Unmap it from parent */
-    if (memsz > filesz &&
+    if (memsz > filesz && 
         (res = sys_alloc_region(child, (void *)ROUNDUP(va + filesz, 4096), memsz, perm)))
         return res;
 

@@ -57,7 +57,7 @@ again:
                 dup(fd, 0);
                 close(fd);
             }
-            break;
+	    break;
 
         case '>': /* Output redirection */
             /* Grab the filename from the argument list */

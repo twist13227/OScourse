@@ -16,6 +16,10 @@
 #include <kern/env.h>
 #include <kern/pmap.h>
 #include <kern/trap.h>
+#include <kern/kclock.h>
+
+#include <kern/udp.h>
+#include <kern/traceopt.h>
 
 #define WHITESPACE "\t\r\n "
 #define MAXARGS    16
@@ -24,6 +28,7 @@
 int mon_help(int argc, char **argv, struct Trapframe *tf);
 int mon_kerninfo(int argc, char **argv, struct Trapframe *tf);
 int mon_backtrace(int argc, char **argv, struct Trapframe *tf);
+int mon_echo(int argc, char **argv, struct Trapframe *tf);
 int mon_dumpcmos(int argc, char **argv, struct Trapframe *tf);
 int mon_start(int argc, char **argv, struct Trapframe *tf);
 int mon_stop(int argc, char **argv, struct Trapframe *tf);
@@ -31,6 +36,8 @@ int mon_frequency(int argc, char **argv, struct Trapframe *tf);
 int mon_memory(int argc, char **argv, struct Trapframe *tf);
 int mon_pagetable(int argc, char **argv, struct Trapframe *tf);
 int mon_virt(int argc, char **argv, struct Trapframe *tf);
+int mon_eth_recv(int argc, char **argv, struct Trapframe *tf);
+int mon_udp_send(int argc, char **argv, struct Trapframe *tf);
 
 struct Command {
     const char *name;
@@ -43,7 +50,16 @@ static struct Command commands[] = {
         {"help", "Display this list of commands", mon_help},
         {"kerninfo", "Display information about the kernel", mon_kerninfo},
         {"backtrace", "Print stack backtrace", mon_backtrace},
+	{"echo", "Echo user input", mon_echo},
         {"dumpcmos", "Print CMOS contents", mon_dumpcmos},
+	{"timer_start", "Start timer", mon_start},
+        {"timer_stop", "Stop timer and print elapsed time", mon_stop},
+        {"timer_freq", "Print CPU frequence", mon_frequency},
+	{"memory", "Display free pages", mon_memory},
+	{"vmemory", "Display virtual memory tree", mon_virt},
+        {"pgtab", "Display free pages", mon_pagetable},
+	{"eth_recv", "Test eth receive", mon_eth_recv},
+	{"udp_send", "Test udp send", mon_udp_send},
 };
 #define NCOMMANDS (sizeof(commands) / sizeof(commands[0]))
 
@@ -73,7 +89,40 @@ mon_kerninfo(int argc, char **argv, struct Trapframe *tf) {
 int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf) {
     // LAB 2: Your code here
+    cprintf("Stack backtrace:\n");
 
+    uint64_t rbp = read_rbp();
+
+    while (rbp != 0) {
+        uint64_t *ptr = (uint64_t *) rbp;
+        uint64_t rip = ptr[1];
+
+        cprintf("  rbp ");
+        cprintf("%016lx", rbp);
+        cprintf("  rip ");
+        cprintf("%016lx", rip);
+        cprintf("\n");
+
+        struct Ripdebuginfo info;
+        int error = debuginfo_rip((uintptr_t)rip, &info);
+        if (error == 0)
+            cprintf("    %s:%d: %*s+%lu\n", info.rip_file, info.rip_line, info.rip_fn_namelen, info.rip_fn_name,
+                rip - info.rip_fn_addr);
+        else
+            cprintf("Error getting debug info for rip %lx\n", rip);
+
+        rbp = *ptr;
+    }
+
+    return 0;
+}
+
+int
+mon_echo(int argc, char **argv, struct Trapframe *tf) {
+    for (int i = 1; i < argc; i++) {
+        cprintf("%s", argv[i]);
+        cprintf(i != argc - 1 ? " " : "\n");
+    }
     return 0;
 }
 
@@ -85,21 +134,113 @@ mon_dumpcmos(int argc, char **argv, struct Trapframe *tf) {
     // Make sure you understand the values read.
     // Hint: Use cmos_read8()/cmos_write8() functions.
     // LAB 4: Your code here
+    for (size_t i = 0; i < 128; i++) {
+        if (i == 0)
+            cprintf("00:");
+        else if (i % 16 == 0)
+            cprintf("\n%02lx:", i);
+
+        cprintf(" %02x", cmos_read8(i));
+    }
+    cprintf("\n");
 
     return 0;
 }
 
 /* Implement timer_start (mon_start), timer_stop (mon_stop), timer_freq (mon_frequency) commands. */
 // LAB 5: Your code here:
+int
+mon_start(int argc, char **argv, struct Trapframe *tf) {
+    if (argc != 1)
+        return 1;
+
+    timer_start(argv[1]);
+
+    return 0;
+}
+
+int
+mon_stop(int argc, char **argv, struct Trapframe *tf) {
+    if (argc != 1)
+        return 1;
+    
+    timer_stop();
+    
+    return 0;
+}
+
+int
+mon_frequency(int argc, char **argv, struct Trapframe *tf) {
+    if (argc != 2)
+        return 1;
+
+    timer_cpu_frequency(argv[1]);
+
+    return 0;
+}
 
 /* Implement memory (mon_memory) command.
  * This command should call dump_memory_lists()
  */
 // LAB 6: Your code here
+int
+mon_memory(int argc, char **argv, struct Trapframe *tf) {
+    dump_memory_lists();
+    return 0;
+}
 
 /* Implement mon_pagetable() and mon_virt()
  * (using dump_virtual_tree(), dump_page_table())*/
 // LAB 7: Your code here
+int 
+mon_virt(int argc, char **argv, struct Trapframe *tf) {
+    dump_virtual_tree(kspace.root, MAX_CLASS);
+    return 0;
+}
+
+int 
+mon_pagetable(int argc, char **argv, struct Trapframe *tf) {
+    dump_page_table(kspace.pml4);
+    return 0;
+}
+
+int
+mon_pci_info(int argc, char **argv, struct Trapframe *tf) {
+    
+    return 0;
+}
+
+int
+mon_eth_recv(int argc, char **argv, struct Trapframe *tf) {
+    while (1) {
+        char buf[1000];
+        e1000_listen();
+        int len = eth_recv(buf);
+        if (trace_packets && len >= 0) {
+            cprintf("Received length: %d\n", len);
+            if (len > 0) {
+                cprintf("Received packet: ");
+                for (int i = 0; i < len; i++) {
+                    cprintf("%x ", buf[i] & 0xff);
+                }
+                cprintf("\n");
+            }
+        } else {
+            cprintf("Received status: %s%s\n", (len >= 0) ? "OK" : "ERROR", (len == 0) ? " EMPTY" : " ");
+        }
+        cprintf("\n");
+    }
+    return 0;
+}
+
+int 
+mon_udp_send(int argc, char **argv, struct Trapframe *tf) { 
+    for (int i = 0; i < 70; i++) { 
+        char buf[] = "Hello\n";
+        udp_send(buf, sizeof(buf)); 
+    } 
+    return 0; 
+} 
 
 /* Kernel monitor command interpreter */
 
@@ -144,6 +285,10 @@ monitor(struct Trapframe *tf) {
     cprintf("Type 'help' for a list of commands.\n");
 
     if (tf) print_trapframe(tf);
+
+    #ifdef NETWORK_TEST
+        mon_eth_recv(0, NULL, NULL);
+    #endif
 
     char *buf;
     do buf = readline("K> ");

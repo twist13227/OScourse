@@ -19,6 +19,9 @@
 #include <kern/kdebug.h>
 #include <kern/traceopt.h>
 
+#include <kern/pci.h>
+#include <kern/arp.h>
+
 void
 timers_init(void) {
     timertab[0] = timer_rtc;
@@ -154,17 +157,26 @@ i386_init(void) {
     /* User environment initialization functions */
     env_init();
 
+    pci_init();
+    initialize_arp_table();
+
+#ifdef NETWORK_TEST
+    panic("go to monitor for network test");
+#endif
+    
     /* Choose the timer used for scheduling: hpet or pit */
     timers_schedule("hpet0");
 
 #ifdef CONFIG_KSPACE
     /* Touch all you want */
+    /*
     ENV_CREATE_KERNEL_TYPE(prog_test1);
     ENV_CREATE_KERNEL_TYPE(prog_test2);
     ENV_CREATE_KERNEL_TYPE(prog_test3);
     ENV_CREATE_KERNEL_TYPE(prog_test4);
     ENV_CREATE_KERNEL_TYPE(prog_test5);
     ENV_CREATE_KERNEL_TYPE(prog_test6);
+     */
 #else
 
 #if LAB >= 10

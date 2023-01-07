@@ -2,6 +2,7 @@
 #include <inc/x86.h>
 #include <inc/assert.h>
 #include <inc/string.h>
+#include <inc/vsyscall.h>
 
 #include <kern/pmap.h>
 #include <kern/trap.h>
@@ -13,6 +14,7 @@
 #include <kern/kclock.h>
 #include <kern/picirq.h>
 #include <kern/timer.h>
+#include <kern/vsyscall.h>
 #include <kern/traceopt.h>
 
 static struct Taskstate ts;
@@ -286,11 +288,11 @@ trap_dispatch(struct Trapframe *tf) {
         /* Handle processor exceptions. */
         // LAB 9: Your code here.
         page_fault_handler(tf);
-        return;
+	return;
     case T_BRKPT:
         // LAB 8: Your code here
         monitor(tf);
-        return;
+	return;
     case IRQ_OFFSET + IRQ_SPURIOUS:
         /* Handle spurious interrupts
          * The hardware sometimes raises these because of noise on the
@@ -302,10 +304,12 @@ trap_dispatch(struct Trapframe *tf) {
         return;
     case IRQ_OFFSET + IRQ_TIMER:
     case IRQ_OFFSET + IRQ_CLOCK:
+        // LAB 12: Your code here
         // LAB 5: Your code here
-        timer_for_schedule->handle_interrupts();
-        sched_yield();
-        return;
+	timer_for_schedule->handle_interrupts();
+        vsys[VSYS_gettime] = gettime();
+	sched_yield();
+	return;
         /* Handle keyboard and serial interrupts. */
         // LAB 11: Your code here
     case IRQ_OFFSET + IRQ_KBD:
@@ -366,6 +370,7 @@ trap(struct Trapframe *tf) {
             assert(!res);
         }
 #endif
+
         /* If #PF was caused by write it can be lazy copying/allocation (fast path)
          * It is required to be handled here because of in-kernel page faults
          * which can happen with curenv == NULL */
@@ -472,7 +477,7 @@ page_fault_handler(struct Trapframe *tf) {
                     tf->tf_err & FEC_I ? 'I' : '-');
         }
         in_page_fault = 0;
-        user_mem_assert(curenv, (void *)tf->tf_rsp, sizeof(struct UTrapframe), PROT_W | PROT_USER_);
+	user_mem_assert(curenv, (void *)tf->tf_rsp, sizeof(struct UTrapframe), PROT_W | PROT_USER_);
         env_destroy(curenv);
     }
 
@@ -513,11 +518,9 @@ page_fault_handler(struct Trapframe *tf) {
     switch_address_space(old);
     /* Reset in_page_fault flag */
     // LAB 9: Your code here:
-
     in_page_fault = 0;
 
     /* Rerun current environment */
     // LAB 9: Your code here:
-
     env_run(curenv);
 }

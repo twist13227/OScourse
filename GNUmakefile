@@ -41,10 +41,10 @@ TOP = .
 
 ifdef JOSLLVM
 
-CC	:= clang -target x86_64-gnu-linux -pipe
+CC	:= /home/twist/ispras-toolchain/ispras-llvm/bin/clang -target x86_64-gnu-linux -pipe
 AS	:= $(shell command -v llvm-as >/dev/null 2>&1 && echo llvm-as || echo as)
 AR	:= $(shell command -v llvm-ar >/dev/null 2>&1 && echo llvm-ar || echo ar)
-LD	:= ld.lld
+LD	:= /home/twist/ispras-toolchain/ispras-llvm/bin/ld.lld
 OBJCOPY	:= $(shell command -v llvm-objcopy >/dev/null 2>&1 && echo llvm/gnu-objcopy || echo objcopy)
 OBJDUMP	:= $(shell command -v llvm-objdump >/dev/null 2>&1 && echo llvm-objdump || echo objdump)
 NM	:= $(shell command -v llvm-nm >/dev/null 2>&1 && echo llvm-nm || echo nm)
@@ -116,6 +116,8 @@ QEMU := $(shell if which qemu-system-x86_64 > /dev/null 2>&1; \
 	echo "*** or have you tried setting the QEMU variable in conf/env.mk?" 1>&2; \
 	echo "***" 1>&2; exit 1)
 endif
+
+QEMU := /home/twist/ispras-toolchain/ispras-qemu/bin/qemu-system-x86_64
 
 # Try to generate a unique GDB port if it is not set already.
 ifeq ($(GDBPORT),)
